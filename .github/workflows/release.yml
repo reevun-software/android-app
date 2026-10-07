@@ -1,0 +1,82 @@
+name: Release
+
+# Builds Reevun for Android. Signed with the upload key (secrets
+# ANDROID_KEYSTORE as base64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+# ANDROID_KEY_PASSWORD), it's published as a GitHub release: Reevun.apk to
+# install directly, Reevun.aab for Google Play. Without the key, the build
+# is checked and its debug APK kept with the run. Runs on every change here
+# and on every change to app-core (app-core sends "core-updated").
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [core-updated]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: 1.0.${{ github.run_number }}
+      SIGNED: ${{ secrets.ANDROID_KEYSTORE != '' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: android-app
+      - uses: actions/checkout@v5
+        with:
+          repository: reevun-software/app-core
+          token: ${{ secrets.DESKTOP_CI_TOKEN }}
+          path: app-core
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # The app's own screens, one self-contained page built into the app.
+      - name: Screens
+        run: |
+          npm --prefix app-core ci
+          npm --prefix app-core run build
+          mkdir -p android-app/app/src/main/assets/screens
+          cp app-core/dist/index.html android-app/app/src/main/assets/screens/
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Upload key
+        if: env.SIGNED == 'true'
+        run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > "$RUNNER_TEMP/upload.jks"
+      - name: Build
+        working-directory: android-app
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ env.SIGNED == 'true' && format('{0}/upload.jks', runner.temp) || '' }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$ANDROID_KEYSTORE_FILE" ] || unset ANDROID_KEYSTORE_FILE
+          ./gradlew assembleDebug assembleRelease bundleRelease -PversionCode=${{ github.run_number }} -PversionName=$VERSION
+      - name: Debug build
+        if: env.SIGNED != 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: Reevun-debug-${{ env.VERSION }}
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      # Always Reevun.apk and Reevun.aab, so .../releases/latest/download/<name>
+      # is a permanent download link.
+      - name: Publish
+        if: env.SIGNED == 'true'
+        working-directory: android-app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk Reevun.apk
+          cp app/build/outputs/bundle/release/app-release.aab Reevun.aab
+          gh release create "v$VERSION" --title "Reevun $VERSION" --notes "" --latest Reevun.apk Reevun.aab

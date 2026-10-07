@@ -1,0 +1,6 @@
+/.gradle
+/build
+/app/build
+/local.properties
+# Built from app-core by the release workflow.
+/app/src/main/assets/screens
