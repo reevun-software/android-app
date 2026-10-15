@@ -36,7 +36,7 @@ import kotlin.concurrent.thread
 // and offline screens over it until it has loaded (or while the sign-in in
 // the browser is open).
 class MainActivity : ComponentActivity() {
-    private enum class SiteState { LOADING, OFFLINE, BROWSER, READY }
+    private enum class SiteState { LOADING, OFFLINE, BROWSER, UPDATE, READY }
 
     private lateinit var root: FrameLayout
     private lateinit var site: WebView
@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this) {
             if (site.canGoBack()) site.goBack() else moveTaskToBack(true)
         }
-        if (savedInstanceState == null || site.restoreState(savedInstanceState) == null) dashboard()
+        if (savedInstanceState == null || site.restoreState(savedInstanceState) == null) openWhenCurrent()
         signedIn(intent)
     }
 
@@ -94,6 +94,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun dashboard() = site.loadUrl("${Site.URL}/dashboard")
+
+    // With a newer version out, the site doesn't open until it's installed.
+    private fun openWhenCurrent() = thread {
+        val newer = NewVersion.isOut()
+        runOnUiThread { if (newer) report(SiteState.UPDATE) else dashboard() }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun siteView(): WebView {
@@ -262,6 +268,7 @@ class MainActivity : ComponentActivity() {
                 signIn.cancel()
                 showSite()
             }
+            "getUpdate" -> openOutside("${Site.URL}/download/android".toUri())
         }
         return null
     }
