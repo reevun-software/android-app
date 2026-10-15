@@ -14,8 +14,9 @@ import org.json.JSONObject
 // Signing in happens in the browser, not in the app: the app opens Reevun
 // ID's id.reevun.app/app?challenge=…&state=… in a Custom Tab. There the
 // person signs in (or already is) and confirms; Reevun ID sends the browser
-// to reevun://signed-in?state=…&code=…, which brings the app back with a
-// one-time code. Only this app can trade it for a session: the code is
+// to id.reevun.app/app-link?state=…&code=… (an App Link: only this app,
+// verified for the domain, opens it; before that, the page hands over to
+// reevun://signed-in), which brings the app back with a one-time code. Only this app can trade it for a session: the code is
 // bound to the challenge, and the secret behind it (the verifier) never
 // leaves the app (PKCE). The sign-in waiting is kept across the app being
 // closed meanwhile.
@@ -32,6 +33,7 @@ class SignIn(context: Context) {
         val url = "${Site.ID_URL}/app".toUri().buildUpon()
             .appendQueryParameter("challenge", challenge)
             .appendQueryParameter("state", state)
+            .appendQueryParameter("back", "link")
             .build().toString()
         saved.edit {
             putString("state", state)
@@ -43,7 +45,7 @@ class SignIn(context: Context) {
 
     fun cancel() = saved.edit { clear() }
 
-    // The session token for this reevun://signed-in address, or null (not
+    // The session token for this return address, or null (not
     // this sign-in's, or refused). Blocks: call off the main thread.
     fun finish(uri: Uri): String? {
         val state = saved.getString("state", null) ?: return null
@@ -70,7 +72,9 @@ class SignIn(context: Context) {
     }
 
     companion object {
-        fun isReturn(uri: Uri?) = uri?.scheme == "reevun" && uri.host == "signed-in"
+        fun isReturn(uri: Uri?) =
+            (uri?.scheme == "reevun" && uri.host == "signed-in") ||
+                (uri?.scheme == "https" && uri.host == Site.ID_URL.toUri().host && uri.path == "/app-link")
 
         private fun random(bytes: Int) = encode(ByteArray(bytes).also { SecureRandom().nextBytes(it) })
 
